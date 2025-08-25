@@ -1,0 +1,1644 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+
+local LocalPlayer = Players.LocalPlayer
+local teleportActive = false
+local autoTeleport = false
+local autoTeleportConn = nil
+
+local guiEnabled = false
+local moveCursorEnabled = true
+local teleportDistance = 5.5
+
+-- Массивы для мульти-выделения и черного списка
+local selectedPlayers = {}
+local blacklistPlayers = {}
+
+-- GUI creation
+local function createGui()
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "TeleportBehindPlayerGui"
+	screenGui.ResetOnSpawn = false
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(0, 320, 0, 480)
+	frame.Position = UDim2.new(0.5, -160, 0.5, -240)
+	frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+	frame.BorderSizePixel = 0
+	frame.Visible = true
+	frame.Parent = screenGui
+
+	local toggleButton = Instance.new("TextButton")
+	toggleButton.Size = UDim2.new(1, -20, 0, 40)
+	toggleButton.Position = UDim2.new(0, 10, 0, 10)
+	toggleButton.Text = "Включить скрипт"
+	toggleButton.BackgroundColor3 = Color3.fromRGB(60,180,60)
+	toggleButton.TextColor3 = Color3.new(1,1,1)
+	toggleButton.Font = Enum.Font.SourceSansBold
+	toggleButton.TextSize = 22
+	toggleButton.Parent = frame
+
+	-- Настройки
+	local settingsLabel = Instance.new("TextLabel")
+	settingsLabel.Size = UDim2.new(1, -20, 0, 26)
+	settingsLabel.Position = UDim2.new(0, 10, 0, 60)
+	settingsLabel.Text = "Настройки:"
+	settingsLabel.BackgroundTransparency = 1
+	settingsLabel.TextColor3 = Color3.new(1,1,1)
+	settingsLabel.Font = Enum.Font.SourceSansBold
+	settingsLabel.TextSize = 18
+	settingsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	settingsLabel.Parent = frame
+
+	-- Чекбокс перемещения курсора
+	local cursorCheckbox = Instance.new("TextButton")
+	cursorCheckbox.Size = UDim2.new(0, 26, 0, 26)
+	cursorCheckbox.Position = UDim2.new(0, 10, 0, 90)
+	cursorCheckbox.BackgroundColor3 = Color3.fromRGB(60,60,60)
+	cursorCheckbox.TextColor3 = Color3.new(1,1,1)
+	cursorCheckbox.Font = Enum.Font.SourceSansBold
+	cursorCheckbox.TextSize = 18
+	cursorCheckbox.Text = moveCursorEnabled and "✔" or ""
+	cursorCheckbox.Parent = frame
+
+	local cursorLabel = Instance.new("TextLabel")
+	cursorLabel.Size = UDim2.new(1, -46, 0, 26)
+	cursorLabel.Position = UDim2.new(0, 40, 0, 90)
+	cursorLabel.BackgroundTransparency = 1
+	cursorLabel.Text = "Перемещать курсор к цели"
+	cursorLabel.TextColor3 = Color3.new(1,1,1)
+	cursorLabel.Font = Enum.Font.SourceSans
+	cursorLabel.TextSize = 18
+	cursorLabel.TextXAlignment = Enum.TextXAlignment.Left
+	cursorLabel.Parent = frame
+
+	cursorCheckbox.MouseButton1Click:Connect(function()
+		moveCursorEnabled = not moveCursorEnabled
+		cursorCheckbox.Text = moveCursorEnabled and "✔" or ""
+	end)
+
+	-- Настройка расстояния
+	local distanceLabel = Instance.new("TextLabel")
+	distanceLabel.Size = UDim2.new(1, -20, 0, 26)
+	distanceLabel.Position = UDim2.new(0, 10, 0, 120)
+	distanceLabel.BackgroundTransparency = 1
+	distanceLabel.Text = "Расстояние за спиной: " .. tostring(teleportDistance)
+	distanceLabel.TextColor3 = Color3.new(1,1,1)
+	distanceLabel.Font = Enum.Font.SourceSans
+	distanceLabel.TextSize = 18
+	distanceLabel.TextXAlignment = Enum.TextXAlignment.Left
+	distanceLabel.Parent = frame
+
+	local minusButton = Instance.new("TextButton")
+	minusButton.Size = UDim2.new(0, 26, 0, 26)
+	minusButton.Position = UDim2.new(0, 10, 0, 150)
+	minusButton.BackgroundColor3 = Color3.fromRGB(80,80,80)
+	minusButton.TextColor3 = Color3.new(1,1,1)
+	minusButton.Font = Enum.Font.SourceSansBold
+	minusButton.TextSize = 22
+	minusButton.Text = "-"
+	minusButton.Parent = frame
+
+	local plusButton = Instance.new("TextButton")
+	plusButton.Size = UDim2.new(0, 26, 0, 26)
+	plusButton.Position = UDim2.new(0, 46, 0, 150)
+	plusButton.BackgroundColor3 = Color3.fromRGB(80,80,80)
+	plusButton.TextColor3 = Color3.new(1,1,1)
+	plusButton.Font = Enum.Font.SourceSansBold
+	plusButton.TextSize = 22
+	plusButton.Text = "+"
+	plusButton.Parent = frame
+
+	minusButton.MouseButton1Click:Connect(function()
+		teleportDistance = math.max(1, teleportDistance - 1)
+		distanceLabel.Text = "Расстояние за спиной: " .. tostring(teleportDistance)
+	end)
+	plusButton.MouseButton1Click:Connect(function()
+		teleportDistance = math.min(20, teleportDistance + 1)
+		distanceLabel.Text = "Расстояние за спиной: " .. tostring(teleportDistance)
+	end)
+
+	-- Сдвигаем остальные элементы ниже
+	local playerListLabel = Instance.new("TextLabel")
+	playerListLabel.Size = UDim2.new(1, -20, 0, 30)
+	playerListLabel.Position = UDim2.new(0, 10, 0, 190)
+	playerListLabel.Text = "Выберите цель для телепортации:"
+	playerListLabel.BackgroundTransparency = 1
+	playerListLabel.TextColor3 = Color3.new(1,1,1)
+	playerListLabel.Font = Enum.Font.SourceSans
+	playerListLabel.TextSize = 18
+	playerListLabel.TextXAlignment = Enum.TextXAlignment.Left
+	playerListLabel.Parent = frame
+
+	local scrollingFrame = Instance.new("ScrollingFrame")
+	scrollingFrame.Size = UDim2.new(1, -20, 0, 140)
+	scrollingFrame.Position = UDim2.new(0, 10, 0, 230)
+	scrollingFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+	scrollingFrame.BorderSizePixel = 0
+	scrollingFrame.CanvasSize = UDim2.new(0,0,0,0)
+	scrollingFrame.ScrollBarThickness = 6
+	scrollingFrame.Parent = frame
+
+	local clearSelectedButton = Instance.new("TextButton")
+	clearSelectedButton.Size = UDim2.new(0.5, -15, 0, 30)
+	clearSelectedButton.Position = UDim2.new(0, 10, 1, -80)
+	clearSelectedButton.Text = "Сбросить выбранные"
+	clearSelectedButton.BackgroundColor3 = Color3.fromRGB(120,120,120)
+	clearSelectedButton.TextColor3 = Color3.new(1,1,1)
+	clearSelectedButton.Font = Enum.Font.SourceSans
+	clearSelectedButton.TextSize = 18
+	clearSelectedButton.Parent = frame
+
+	local clearBlacklistButton = Instance.new("TextButton")
+	clearBlacklistButton.Size = UDim2.new(0.5, -15, 0, 30)
+	clearBlacklistButton.Position = UDim2.new(0.5, 5, 1, -80)
+	clearBlacklistButton.Text = "Сбросить черный список"
+	clearBlacklistButton.BackgroundColor3 = Color3.fromRGB(180,60,60)
+	clearBlacklistButton.TextColor3 = Color3.new(1,1,1)
+	clearBlacklistButton.Font = Enum.Font.SourceSans
+	clearBlacklistButton.TextSize = 18
+	clearBlacklistButton.Parent = frame
+
+	local clearTargetButton = Instance.new("TextButton")
+	clearTargetButton.Size = UDim2.new(1, -20, 0, 30)
+	clearTargetButton.Position = UDim2.new(0, 10, 1, -40)
+	clearTargetButton.Text = "Сбросить ближайший"
+	clearTargetButton.BackgroundColor3 = Color3.fromRGB(120,120,120)
+	clearTargetButton.TextColor3 = Color3.new(1,1,1)
+	clearTargetButton.Font = Enum.Font.SourceSans
+	clearTargetButton.TextSize = 18
+	clearTargetButton.Parent = frame
+
+	-- Logic for toggle
+	local function updateToggle()
+		if teleportActive then
+			toggleButton.Text = "Выключить скрипт"
+			toggleButton.BackgroundColor3 = Color3.fromRGB(180,60,60)
+		else
+			toggleButton.Text = "Включить скрипт"
+			toggleButton.BackgroundColor3 = Color3.fromRGB(60,180,60)
+		end
+	end
+	updateToggle()
+
+	toggleButton.MouseButton1Click:Connect(function()
+		teleportActive = not teleportActive
+		updateToggle()
+		if not teleportActive and autoTeleport then
+			autoTeleport = false
+			if autoTeleportConn then
+				autoTeleportConn:Disconnect()
+				autoTeleportConn = nil
+			end
+		end
+	end)
+
+	clearTargetButton.MouseButton1Click:Connect(function()
+		-- Сбросить ближайший (ничего не делаем, т.к. теперь выбор — массив)
+		refreshPlayerList()
+	end)
+
+	clearSelectedButton.MouseButton1Click:Connect(function()
+		selectedPlayers = {}
+		refreshPlayerList()
+	end)
+
+	clearBlacklistButton.MouseButton1Click:Connect(function()
+		blacklistPlayers = {}
+		refreshPlayerList()
+	end)
+
+	-- Player list logic
+	function refreshPlayerList()
+		for i, child in scrollingFrame:GetChildren() do
+			if child:IsA("TextButton") then
+				child:Destroy()
+			end
+		end
+		local y = 0
+		for i, player in Players:GetPlayers() do
+			if player ~= LocalPlayer then
+				local btn = Instance.new("TextButton")
+				btn.Size = UDim2.new(1, 0, 0, 32)
+				btn.Position = UDim2.new(0, 0, 0, y)
+				btn.Text = player.Name
+				if blacklistPlayers then
+					for k, v in blacklistPlayers do
+						if v == player then
+							btn.BackgroundColor3 = Color3.fromRGB(180,40,40)
+							break
+						end
+					end
+				end
+				if not isInArray(blacklistPlayers, player) then
+					if isInArray(selectedPlayers, player) then
+						btn.BackgroundColor3 = Color3.fromRGB(80,120,200)
+					else
+						btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+					end
+				end
+				btn.TextColor3 = Color3.new(1,1,1)
+				btn.Font = Enum.Font.SourceSans
+				btn.TextSize = 20
+				btn.Parent = scrollingFrame
+				btn.MouseButton1Click:Connect(function()
+					if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
+						toggleInArray(selectedPlayers, player)
+					else
+						if isInArray(selectedPlayers, player) then
+							toggleInArray(selectedPlayers, player)
+						else
+							selectedPlayers = {player}
+						end
+					end
+					refreshPlayerList()
+				end)
+				btn.MouseButton2Click:Connect(function()
+					toggleInArray(blacklistPlayers, player)
+					refreshPlayerList()
+				end)
+				y = y + 34
+			end
+		end
+		scrollingFrame.CanvasSize = UDim2.new(0,0,0,y)
+	end
+
+	Players.PlayerAdded:Connect(refreshPlayerList)
+	Players.PlayerRemoving:Connect(refreshPlayerList)
+	refreshPlayerList()
+
+	screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+	screenGui.Enabled = false
+
+	return screenGui
+end
+
+-- Проверка: игрок в массиве
+function isInArray(arr, obj)
+	for i, v in arr do
+		if v == obj then return true end
+	end
+	return false
+end
+
+-- Добавить/убрать игрока из массива
+function toggleInArray(arr, obj)
+	local found = false
+	for i, v in arr do
+		if v == obj then
+			table.remove(arr, i)
+			found = true
+			break
+		end
+	end
+	if not found then
+		table.insert(arr, obj)
+	end
+end
+
+local gui = nil
+local function ensureGui()
+	if not gui then
+		gui = createGui()
+	end
+end
+
+local function getNearestPlayerFromList(playerList)
+	local myChar = LocalPlayer.Character
+	if not myChar or not myChar.Parent then return nil end
+	local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+	if not myHRP then return nil end
+
+	local nearest = nil
+	local minDist = math.huge
+	for i, player in playerList do
+		if player ~= LocalPlayer and player.Character and player.Character.Parent and not isInArray(blacklistPlayers, player) then
+			local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				local dist = (myHRP.Position - hrp.Position).Magnitude
+				if dist < minDist then
+					minDist = dist
+					nearest = player
+				end
+			end
+		end
+	end
+	return nearest
+end
+
+local function getAllAvailablePlayers()
+	local arr = {}
+	for i, player in Players:GetPlayers() do
+		if player ~= LocalPlayer and not isInArray(blacklistPlayers, player) then
+			table.insert(arr, player)
+		end
+	end
+	return arr
+end
+
+local function teleportBehind(targetPlayer)
+	local myChar = LocalPlayer.Character
+	if not myChar or not myChar.Parent then return end
+	local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+	local myHumanoid = myChar:FindFirstChildOfClass("Humanoid")
+	if not myHRP or not myHumanoid then return end
+
+	if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character.Parent then return end
+	local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if not targetHRP then return end
+
+	local offset = -targetHRP.CFrame.LookVector * teleportDistance
+	local newPos = targetHRP.CFrame.Position + offset + Vector3.new(0, 0.5, 0)
+	local lookAt = targetHRP.Position
+
+	myChar:PivotTo(CFrame.new(newPos, lookAt))
+
+	if moveCursorEnabled then
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+	end
+end
+
+local function setAutoTeleport(state)
+	if state then
+		if autoTeleportConn then return end
+		autoTeleportConn = RunService.RenderStepped:Connect(function()
+			if not teleportActive then return end
+			local target = nil
+			if #selectedPlayers > 0 then
+				target = getNearestPlayerFromList(selectedPlayers)
+			else
+				local availablePlayers = getAllAvailablePlayers()
+				target = getNearestPlayerFromList(availablePlayers)
+			end
+			if target then
+				teleportBehind(target)
+			end
+		end)
+	else
+		if autoTeleportConn then
+			autoTeleportConn:Disconnect()
+			autoTeleportConn = nil
+		end
+	end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+
+	-- F2: toggle GUI
+	if input.KeyCode == Enum.KeyCode.F2 then
+		ensureGui()
+		guiEnabled = not guiEnabled
+		gui.Enabled = guiEnabled
+	end
+
+	-- Backquote: toggle auto-teleport
+	if input.KeyCode == Enum.KeyCode.Backquote then
+		if not teleportActive then return end
+		autoTeleport = not autoTeleport
+		setAutoTeleport(autoTeleport)
+	end
+
+	-- T: телепорт к ближайшему из выбранных или ко всем доступным, если нет выбранных
+	if input.KeyCode == Enum.KeyCode.Colon then
+		if not teleportActive then return end
+		local target = nil
+		if #selectedPlayers > 0 then
+			target = getNearestPlayerFromList(selectedPlayers)
+		else
+			local availablePlayers = getAllAvailablePlayers()
+			target = getNearestPlayerFromList(availablePlayers)
+		end
+		if target then
+			teleportBehind(target)
+		end
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	if isInArray(selectedPlayers, player) then
+		toggleInArray(selectedPlayers, player)
+	end
+	if isInArray(blacklistPlayers, player) then
+		toggleInArray(blacklistPlayers, player)
+	end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+	-- ничего не сбрасываем, автотелепорт продолжает работать если был включён
+end)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- Папки с настройками
+local Settings = ReplicatedStorage:FindFirstChild("Settings")
+local Cooldowns = Settings and Settings:FindFirstChild("Cooldowns")
+local Multipliers = Settings and Settings:FindFirstChild("Multipliers")
+local Toggles = Settings and Settings:FindFirstChild("Toggles")
+
+-- Пресеты
+local presets = {
+	legit = {Dash=100,Melee=100,WallCombo=100,KnockbackPowe=100,RagdollPower=100,DisableHitStun=false,Endless=false,MultiUseCutscenes=false,NoJumpFatigue=false,NoSlowdowns=false,NoStunOnMiss=false,},
+	fullcheat = {Dash=0,Melee=0,WallCombo=0,DisableHitStun=true,Endless=true,MultiUseCutscenes=true,NoJumpFatigue=true,NoSlowdowns=true,NoStunOnMiss=true,},
+	eee = {KnockbackPower=500,RagdollPower=400},
+	neeee = {KnockbackPower=100,RagdollPower=100},
+	invisetup = {RagdollPower=9999999999},
+}
+
+-- Создание GUI
+local menuGui = Instance.new("ScreenGui")
+menuGui.Name = "SettingsMenu"
+menuGui.ResetOnSpawn = false
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 400, 0, 350)
+frame.Position = UDim2.new(0.5, -200, 0.5, -175)
+frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+frame.Visible = false
+frame.Parent = menuGui
+
+local title = Instance.new("TextLabel")
+title.Text = "Настройки"
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.new(1,1,1)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 28
+title.Parent = frame
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Text = "Закрыть"
+closeBtn.Size = UDim2.new(0, 100, 0, 30)
+closeBtn.Position = UDim2.new(1, -110, 0, 10)
+closeBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+closeBtn.TextColor3 = Color3.new(1,1,1)
+closeBtn.Parent = frame
+
+closeBtn.MouseButton1Click:Connect(function()
+	frame.Visible = false
+end)
+
+-- Список всех IntValue и BoolValue
+local valueItems = {}
+
+local function scanFolder(folder, typeName)
+	if not folder then return end
+	for _, v in folder:GetChildren() do
+		if v:IsA("IntValue") or v:IsA("BoolValue") then
+			table.insert(valueItems, {obj = v, type = v.ClassName, folder = folder.Name})
+		end
+	end
+end
+
+scanFolder(Cooldowns, "Cooldowns")
+scanFolder(Multipliers, "Multipliers")
+scanFolder(Toggles, "Toggles")
+
+-- Отображение значений
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -20, 1, -120)
+scroll.Position = UDim2.new(0, 10, 0, 50)
+scroll.CanvasSize = UDim2.new(0, 0, 0, #valueItems * 40)
+scroll.BackgroundTransparency = 0.2
+scroll.BackgroundColor3 = Color3.fromRGB(60,60,60)
+scroll.Parent = frame
+
+-- Для обновления GUI после применения пресета
+local guiLines = {}
+
+for i, item in valueItems do
+	local line = Instance.new("Frame")
+	line.Size = UDim2.new(1, -10, 0, 35)
+	line.Position = UDim2.new(0, 5, 0, (i-1)*40)
+	line.BackgroundTransparency = 1
+	line.Parent = scroll
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Text = item.folder .. " / " .. item.obj.Name
+	nameLabel.Size = UDim2.new(0.5, -10, 1, 0)
+	nameLabel.Position = UDim2.new(0, 0, 0, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextColor3 = Color3.new(1,1,1)
+	nameLabel.Font = Enum.Font.SourceSans
+	nameLabel.TextSize = 18
+	nameLabel.Parent = line
+
+	if item.type == "IntValue" then
+		local valueBox = Instance.new("TextBox")
+		valueBox.Text = tostring(item.obj.Value)
+		valueBox.Size = UDim2.new(0.25, 0, 1, -5)
+		valueBox.Position = UDim2.new(0.5, 0, 0, 2)
+		valueBox.BackgroundColor3 = Color3.fromRGB(80,80,80)
+		valueBox.TextColor3 = Color3.new(1,1,1)
+		valueBox.Font = Enum.Font.SourceSans
+		valueBox.TextSize = 18
+		valueBox.Parent = line
+
+		valueBox.FocusLost:Connect(function(enter)
+			if enter then
+				local num = tonumber(valueBox.Text)
+				if num then
+					item.obj.Value = num
+					valueBox.Text = tostring(item.obj.Value)
+				else
+					valueBox.Text = tostring(item.obj.Value)
+				end
+			end
+		end)
+		guiLines[item.obj.Name] = {type="IntValue", valueBox=valueBox}
+	elseif item.type == "BoolValue" then
+		local toggleBtn = Instance.new("TextButton")
+		toggleBtn.Text = item.obj.Value and "Вкл" or "Выкл"
+		toggleBtn.Size = UDim2.new(0.25, 0, 1, -5)
+		toggleBtn.Position = UDim2.new(0.5, 0, 0, 2)
+		toggleBtn.BackgroundColor3 = item.obj.Value and Color3.fromRGB(0,180,0) or Color3.fromRGB(180,0,0)
+		toggleBtn.TextColor3 = Color3.new(1,1,1)
+		toggleBtn.Font = Enum.Font.SourceSans
+		toggleBtn.TextSize = 18
+		toggleBtn.Parent = line
+
+		toggleBtn.MouseButton1Click:Connect(function()
+			item.obj.Value = not item.obj.Value
+			toggleBtn.Text = item.obj.Value and "Вкл" or "Выкл"
+			toggleBtn.BackgroundColor3 = item.obj.Value and Color3.fromRGB(0,180,0) or Color3.fromRGB(180,0,0)
+		end)
+		guiLines[item.obj.Name] = {type="BoolValue", toggleBtn=toggleBtn}
+	end
+end
+
+-- Применение пресетов
+local presetFrame = Instance.new("Frame")
+presetFrame.Size = UDim2.new(1, -20, 0, 60)
+presetFrame.Position = UDim2.new(0, 10, 1, -65)
+presetFrame.BackgroundTransparency = 0.2
+presetFrame.BackgroundColor3 = Color3.fromRGB(60,60,60)
+presetFrame.Parent = frame
+
+local presetTitle = Instance.new("TextLabel")
+presetTitle.Text = "Пресеты:"
+presetTitle.Size = UDim2.new(0.3, 0, 1, 0)
+presetTitle.Position = UDim2.new(0, 0, 0, 0)
+presetTitle.BackgroundTransparency = 1
+presetTitle.TextColor3 = Color3.new(1,1,1)
+presetTitle.Font = Enum.Font.SourceSans
+presetTitle.TextSize = 18
+presetTitle.Parent = presetFrame
+
+local function applyPreset(preset)
+	for k, v in preset do
+		for _, item in valueItems do
+			if item.obj.Name == k then
+				if item.type == "IntValue" and typeof(v) == "number" then
+					item.obj.Value = v
+				elseif item.type == "BoolValue" and typeof(v) == "boolean" then
+					item.obj.Value = v
+				end
+			end
+		end
+	end
+	-- Обновить GUI
+	for name, gui in guiLines do
+		for _, item in valueItems do
+			if item.obj.Name == name then
+				if gui.type == "IntValue" and gui.valueBox then
+					gui.valueBox.Text = tostring(item.obj.Value)
+				elseif gui.type == "BoolValue" and gui.toggleBtn then
+					gui.toggleBtn.Text = item.obj.Value and "Вкл" or "Выкл"
+					gui.toggleBtn.BackgroundColor3 = item.obj.Value and Color3.fromRGB(0,180,0) or Color3.fromRGB(180,0,0)
+				end
+			end
+		end
+	end
+end
+
+-- Автоматическое создание кнопок для всех пресетов
+local presetCount = 0
+for _ in presets do
+	presetCount = presetCount + 1
+end
+
+local index = 0
+for presetName, presetTable in presets do
+	local btn = Instance.new("TextButton")
+	btn.Text = presetName
+	btn.Size = UDim2.new(1/presetCount, -10, 0.7, -10)
+	btn.Position = UDim2.new(index/presetCount, 5, 0.15, 0)
+	btn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+	btn.TextColor3 = Color3.new(1,1,1)
+	btn.Font = Enum.Font.SourceSans
+	btn.TextSize = 18
+	btn.Parent = presetFrame
+
+	btn.MouseButton1Click:Connect(function()
+		applyPreset(presetTable)
+	end)
+	index = index + 1
+end
+
+-- Показать меню по клавише Delete
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.Delete then
+		frame.Visible = not frame.Visible
+	end
+end)
+
+menuGui.Parent = player:WaitForChild("PlayerGui")
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+
+-- Path to the target part
+local targetPart = nil
+local function getTargetPart()
+	local map = workspace:FindFirstChild("Map")
+	if not map then
+		warn("Map not found in workspace")
+		return nil
+	end
+	local structural = map:FindFirstChild("Structural")
+	if not structural then
+		warn("Structural not found in Map")
+		return nil
+	end
+	local part = structural:FindFirstChild("Part")
+	if not part then
+		warn("Part not found in Structural")
+		return nil
+	end
+	local children = part:GetChildren()
+	if #children >= 93 then
+		return children[93]
+	else
+		warn("Not enough children in Part (need at least 93, got " .. tostring(#children) .. ")")
+	end
+	return nil
+end
+
+local teleportEnabled = false
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.J then
+		teleportEnabled = not teleportEnabled
+		if teleportEnabled then
+			print("Teleport enabled")
+		else
+			print("Teleport disabled")
+		end
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	if teleportEnabled then
+		if not targetPart or not targetPart.Parent then
+			targetPart = getTargetPart()
+		end
+		if targetPart then
+			local character = player.Character or player.CharacterAdded:Wait()
+			local head = character:FindFirstChild("Head")
+			if head then
+				-- Place the part 7 studs in front of the head, in the direction the head is facing
+				local frontPosition = head.Position + head.CFrame.LookVector * 7
+				targetPart.CFrame = CFrame.new(frontPosition, head.Position)
+				targetPart.Transparency = 0.9
+				targetPart.Size = Vector3.new(44, 30, 3)
+				targetPart.CanCollide = true
+			end
+		end
+	end
+end)
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
+local positionHistory = {}
+
+-- Function to record position every frame
+local function recordPosition()
+	if character then
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		if rootPart then
+			table.insert(positionHistory, {time = tick(), pos = rootPart.Position})
+			-- Remove positions older than 3 seconds to keep memory usage low
+			while #positionHistory > 0 and tick() - positionHistory[1].time > 3 do
+				table.remove(positionHistory, 1)
+			end
+		end
+	end
+end
+
+-- Listen for character respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+	character = char
+	positionHistory = {}
+end)
+
+RunService.RenderStepped:Connect(recordPosition)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.H then
+		if character then
+			local rootPart = character:FindFirstChild("HumanoidRootPart")
+			if rootPart then
+				-- Find the position from ~2 seconds ago
+				local targetPos = nil
+				local now = tick()
+				for i = #positionHistory, 1, -1 do
+					if now - positionHistory[i].time >= 2 then
+						targetPos = positionHistory[i].pos
+						break
+					end
+				end
+				if targetPos then
+					rootPart.CFrame = CFrame.new(targetPos)
+				end
+			end
+		end
+	end
+end)
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
+local savedCFrame = nil
+
+-- Modes
+local autoSaveEnabled = false -- NumLock mode
+local deleteGuardEnabled = false -- Delete mode (toggle for delete guard)
+
+-- Update character reference on respawn, but do NOT reset savedCFrame
+LocalPlayer.CharacterAdded:Connect(function(char)
+	character = char
+end)
+
+-- Helper to get latest HumanoidRootPart
+local function getRootPart()
+	local currentCharacter = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+	return currentCharacter:FindFirstChild("HumanoidRootPart")
+end
+
+-- Auto-save logic (NumLock)
+RunService.RenderStepped:Connect(function()
+	if autoSaveEnabled then
+		local rootPart = getRootPart()
+		if rootPart then
+			savedCFrame = rootPart.CFrame
+		end
+	end
+end)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+
+	local rootPart = getRootPart()
+	if not rootPart then return end
+
+	-- F: Save position manually
+	if input.KeyCode == Enum.KeyCode.F then
+		savedCFrame = rootPart.CFrame
+
+		-- T: Teleport to saved position
+	elseif input.KeyCode == Enum.KeyCode.T then
+		if savedCFrame then
+			rootPart.CFrame = savedCFrame
+		end
+
+		-- NumLock: Toggle auto-save mode
+	elseif input.KeyCode == Enum.KeyCode.Numlock then
+		autoSaveEnabled = not autoSaveEnabled
+
+		-- Delete: Toggle delete guard mode, and clear saved position if below -10000
+	elseif input.KeyCode == Enum.KeyCode.Delete then
+		deleteGuardEnabled = not deleteGuardEnabled
+		if deleteGuardEnabled and rootPart.Position.Y < -10000 then
+			savedCFrame = nil
+		end
+	end
+end)
+
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+local localPlayer = Players.LocalPlayer
+
+-- Путь к контейнеру с персонажами игроков
+local playersContainer = Workspace:WaitForChild("Characters"):WaitForChild("Players")
+
+-- Функция для поиска ближайшего персонажа другого игрока
+local function findNearestPlayerCharacter()
+	local myCharacter = localPlayer.Character
+	if not myCharacter or not myCharacter:FindFirstChild("HumanoidRootPart") then
+		return nil
+	end
+
+	local myPosition = myCharacter.HumanoidRootPart.Position
+	local nearestCharacter = nil
+	local minDistance = math.huge
+
+	for _, character in playersContainer:GetChildren() do
+		-- Пропускаем самого себя
+		if character == myCharacter then
+			continue
+		end
+
+		if character:IsA("Model") and character:FindFirstChild("HumanoidRootPart") then
+			local distance = (character.HumanoidRootPart.Position - myPosition).Magnitude
+			if distance < minDistance then -- Исправлено: ищем минимальное расстояние, а не максимальное
+				minDistance = distance
+				nearestCharacter = character
+			end
+		end
+	end
+
+	return nearestCharacter
+end
+
+-- Функция, которая срабатывает при нажатии клавиши
+local function onInputBegan(input, gameProcessedEvent)
+	-- Игнорируем ввод, если он уже обработан игрой (например, при вводе в чат)
+	if gameProcessedEvent then
+		return
+	end
+
+	if input.KeyCode == Enum.KeyCode.E then
+		local targetCharacter = findNearestPlayerCharacter()
+
+		if targetCharacter then
+			local humanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				print("Найден ближайший игрок: " .. targetCharacter.Name .. ". Устанавливаем атрибут Health на 0.")
+				humanoid:SetAttribute("Health", 0)
+
+				task.wait(3)
+
+				-- Проверяем, существует ли персонаж и его Humanoid после ожидания
+				if targetCharacter and targetCharacter.Parent and targetCharacter:FindFirstChildOfClass("Humanoid") then
+					print("Восстанавливаем атрибут Health для " .. targetCharacter.Name .. " на 100.")
+					humanoid:SetAttribute("Health", 100)
+				else
+					print("Игрок " .. targetCharacter.Name .. " больше не доступен.")
+				end
+			end
+		else
+			print("Другие игроки не найдены.")
+		end
+	end
+end
+
+-- Подключаем функцию к событию нажатия клавиши
+UserInputService.InputBegan:Connect(onInputBegan)
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+local enabled = false
+local teleportDistance = 12 -- расстояние перед лицом
+
+-- Для хранения состояния HumanoidRootPart цели
+local storedOriginalRoot = nil
+local storedCloneRoot = nil
+local storedPlayer = nil
+
+-- Для хранения всех OriginalHumanoidRootPart, которые были перемещены в ReplicatedStorage
+local movedOriginalRoots = {}
+
+-- Фиксированная цель на время телепортации
+local fixedTargetPlayer = nil
+
+-- Функция поиска ближайшего игрока (кроме себя)
+local function getNearestPlayer()
+	local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return nil end
+
+	local nearestPlayer = nil
+	local nearestDistance = math.huge
+
+	for _, player in Players:GetPlayers() do
+		if player ~= LocalPlayer then
+			local otherChar = player.Character
+			if otherChar then
+				local otherRoot = otherChar:FindFirstChild("HumanoidRootPart")
+				if otherRoot then
+					local dist = (root.Position - otherRoot.Position).Magnitude
+					if dist < nearestDistance then
+						nearestDistance = dist
+						nearestPlayer = player
+					end
+				end
+			end
+		end
+	end
+
+	return nearestPlayer
+end
+
+-- Перемещаем оригинальный HumanoidRootPart в ReplicatedStorage и вставляем клон в Character
+local function swapRootToClone(player)
+	if not player or not player.Character then return end
+	local character = player.Character
+	local originalRoot = character:FindFirstChild("HumanoidRootPart")
+	if not originalRoot then return end
+	storedCloneRoot = originalRoot
+end
+
+-- Возвращаем оригинальный HumanoidRootPart обратно в Character, удаляем клон
+local function restoreOriginalRoot()
+	if storedPlayer and storedPlayer.Character and storedOriginalRoot and storedCloneRoot then
+		-- Удаляем клон
+		if storedCloneRoot.Parent == storedPlayer.Character then
+			storedCloneRoot:Destroy()
+		end
+		-- Возвращаем оригинал
+		storedOriginalRoot.Parent = storedPlayer.Character
+	end
+	storedOriginalRoot = nil
+	storedCloneRoot = nil
+	storedPlayer = nil
+end
+
+-- Перемещает все OriginalHumanoidRootPart из Character игроков в ReplicatedStorage
+local function moveAllOriginalRootsToReplicatedStorage()
+	for _, player in Players:GetPlayers() do
+		if player ~= LocalPlayer and player.Character then
+			local orig = player.Character:FindFirstChild("OriginalHumanoidRootPart")
+			if orig and orig.Parent == player.Character then
+				orig.Parent = ReplicatedStorage
+				movedOriginalRoots[player] = orig
+			end
+		end
+	end
+end
+
+-- Проверяет у цели наличие OriginalHumanoidRootPart и переносит в ReplicatedStorage
+local function moveTargetOriginalRootToReplicatedStorage(targetPlayer)
+	if not targetPlayer or not targetPlayer.Character then return end
+	local orig = targetPlayer.Character:FindFirstChild("OriginalHumanoidRootPart")
+	if orig and orig.Parent == targetPlayer.Character then
+		orig.Parent = ReplicatedStorage
+		movedOriginalRoots[targetPlayer] = orig
+	end
+end
+
+-- Возвращает все OriginalHumanoidRootPart из ReplicatedStorage обратно в Character владельцев
+local function restoreAllOriginalRoots()
+	for player, orig in movedOriginalRoots do
+		if player and player.Character and orig and orig.Parent == ReplicatedStorage then
+			orig.Parent = player.Character
+		end
+	end
+	movedOriginalRoots = {}
+end
+
+-- Основной цикл телепортации
+task.spawn(function()
+	while true do
+		if enabled then
+			local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+			local head = character:FindFirstChild("Head")
+			-- Обновляем список игроков и их моделей (по сути, getNearestPlayer делает это)
+			if not fixedTargetPlayer then
+				-- Фиксируем цель только при включении режима
+				fixedTargetPlayer = getNearestPlayer()
+				-- swapRootToClone только для цели
+				if fixedTargetPlayer then
+					restoreOriginalRoot()
+					swapRootToClone(fixedTargetPlayer)
+				end
+			end
+
+			-- Если цель всё ещё существует
+			if fixedTargetPlayer and fixedTargetPlayer.Character then
+				-- Проверяем наличие OriginalHumanoidRootPart у цели и переносим в ReplicatedStorage
+				moveTargetOriginalRootToReplicatedStorage(fixedTargetPlayer)
+
+				-- Телепортируем клон HumanoidRootPart цели
+				local cloneRoot = storedCloneRoot
+				if head and cloneRoot and cloneRoot.Parent == fixedTargetPlayer.Character then
+					local frontCFrame = head.CFrame + head.CFrame.LookVector * teleportDistance
+					cloneRoot.CFrame = CFrame.new(frontCFrame.Position, head.Position)
+				end
+			else
+				-- Если цель исчезла, возвращаем всё
+				restoreOriginalRoot()
+				restoreAllOriginalRoots()
+				fixedTargetPlayer = nil
+			end
+		else
+			-- Если режим выключен, возвращаем всё
+			restoreOriginalRoot()
+			restoreAllOriginalRoots()
+			fixedTargetPlayer = nil
+		end
+		task.wait(0.1)
+	end
+end)
+
+-- Обработка клавиши T
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.CapsLock then
+		enabled = not enabled
+		if not enabled then
+			restoreOriginalRoot()
+			restoreAllOriginalRoots()
+			fixedTargetPlayer = nil
+		end
+	end
+end)
+--[[
+    Этот локальный скрипт управляет системой эмоций и косметики:
+    1. При запуске настраивает начальное состояние (активирует пассы, управляет RemoteEvents).
+    2. Создает и управляет GUI для выбора эмоций с поиском, которое активируется по клавише 'G'.
+    3. Создает и управляет GUI для выбора косметики с поиском, которое активируется по клавише 'H'.
+    4. Позволяет игроку выбирать и назначать эмоции на 8 слотов.
+    5. Позволяет игроку экипировать аксессуары, ауры и плащи.
+    6. Сохраняет выбор игрока в StringValue в виде JSON-строки.
+]]
+
+-- Сервисы
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+-- Локальный игрок
+local LocalPlayer = Players.LocalPlayer
+
+-- Константы для эмоций
+local EMOTES = {
+	Emote = {"Griddy", "Fright Funk","Aurora Miracle","Blizzard","Candy Cane Duel","Candy Cane Walk","Cold World","Gift Exchange","Ice Skating","Snow Angels","Snowball Barrage","Snowball Juggle","Snowball Throw","Snowman","Carry","Sleddies","Cocoa Cheers","Ice Trick","Nutcracker March","Popcorn","Gravedigger","Death Day","Jingle Bell Shake","Cold World","Mic Drop","Spit","T-Pose","Drag","Yawn","Facepalm","Falling Asleep","Sleepy","Calculated","Rambunctious","Sobbing","Sorcerer Stretch","Shadow Boxing","Floss","Relentless Laughing","Phone Call","Rock Paper Scissors","One-Armed Pickup","Stay Down","Push-Ups","Take the L","Fancy Feet","Hakari Dance","Taco Time","Think","Cutthroat","Shoulder Brush","Heartfelt Salute","Boogie Down","Nerd","Npt Like Us","Paparazzi","Frolic","Sad Rain","Kodo Pose","BOO!","Eating Ramen","Come At Me","Sweet Death","Poppin' Bottles","Mog","Lifting","Star of Hope","Santa Sack","Domain Expansion","Zombie Walk","Broomies","Spooky Scary Skeletons","Bat Laugh","Trick or Treat"},
+	KillEmote = {"Vampire", "Surprise!","ACME","Avra Kadoovra","Baldie's Demise","Barbarian","Bee","Blood Sugar","Cauldron","Curb Stomp","Figure Skater","Frost Breath","Frostbound Prison","Frozen Impalement","Gingerbread","Glacial Burial","Goblin Bomb","Heart Rip","Impostor","Laser Eyes","Mistletoe","Naughty List","Neck Snap","Orthax","Pollen Overload","Possession","Rudolph's Revenge","Selfie","Serious Sneeze","Sick Burn","Smite","Snowball Cannon","Snowflakes","Sore Winner","Spine Breaker","Spirit Trap","Think Mark","Tinsel Strangle","Tree Topper Slice","Werewolf","Wrap It Up"}
+}
+local EMOTE_SLOTS = 8
+local TOGGLE_KEY = Enum.KeyCode.K
+
+-- Константы для косметики
+local COSMETICS_TOGGLE_KEY = Enum.KeyCode.M
+local COSMETICS_DATA = {
+	AccessoriesEquipped = {"Chunin Exam Vest", "Halo","Frozen Gloves","Devil's Eye","Devil's Tail","Devil's Wings","Flower Wings","Frozen Crown","Frozen Tail","Frozen Wings","Garland Scarf","Hades Helmet","Holiday Scarf","Krampus Hat","Red Kagune","Rudolph Antlers","Snowflake Wings","Sorting Hat","VIP Crown"},
+	AurasEquipped = {"Butterflies", "Northern Lights","Ki","Blue Lightning","Green Lightning","Red Lightning","Purple Lightning","Yellow Lightning"},
+	CapesEquipped = {"Ice Lord", "Viking","Christmas Lights","Dracula","Krampus","Krampus Supreme","Santa","VIP","Webbed"}
+}
+
+-- Переменные для GUI и данных
+local emoteData = {}
+local emoteGui, emoteWheelFrame, emoteSelectionFrame, cosmeticsFrame
+local currentSlotIndex = nil
+
+-- Начальная настройка при запуске скрипта
+local function initialize()
+	-- 1. Активация всех "пассов"
+	local passesFolder = LocalPlayer:WaitForChild("Passes")
+	if passesFolder then
+		for _, passValue in passesFolder:GetChildren() do
+			if passValue:IsA("BoolValue") then
+				passValue.Value = true
+			elseif passValue:IsA("NumberValue") then
+				passValue.Value = 1 -- "Включить" NumberValue, установив значение 1
+			end
+		end
+	end
+
+	-- 2. Управление RemoteEvents
+	local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
+	local combatFolder = remotesFolder:WaitForChild("Combat")
+
+	if combatFolder then
+		local emoteStop = combatFolder:FindFirstChild("EmoteStop")
+		if emoteStop then
+			emoteStop:Destroy()
+		end
+
+		task.wait(1)
+
+		local emoteStart = combatFolder:FindFirstChild("EmoteStart")
+		if emoteStart then
+			local newEmoteStop = emoteStart:Clone()
+			newEmoteStop.Name = "EmoteStop"
+			newEmoteStop.Parent = combatFolder
+		end
+	end
+end
+
+-- Создание таблицы с данными по умолчанию
+local function createDefaultEmoteData()
+	local data = {}
+	-- 8 слотов для эмоций
+	for i = 1, EMOTE_SLOTS do
+		table.insert(data, {"Emote", "None"})
+	end
+	-- 4 булевых флага
+	for i = 1, 4 do
+		table.insert(data, true)
+	end
+	return data
+end
+
+-- Обновление StringValue новыми данными об эмоциях
+local function updateEmoteValue()
+	local dataFolder = LocalPlayer:WaitForChild("Data")
+	local equippedValue = dataFolder:FindFirstChild("EmoteEquipped")
+
+	if equippedValue and equippedValue:IsA("StringValue") then
+		local success, encodedData = pcall(function()
+			return HttpService:JSONEncode(emoteData)
+		end)
+		if success then
+			equippedValue.Value = encodedData
+		else
+			warn("Failed to encode emote data to JSON.")
+		end
+	else
+		warn("EmoteEquipped StringValue not found in Player.Data")
+	end
+end
+
+-- Обновление StringValue для общих данных (косметика и т.д.)
+local function updateDataValue(valueName, dataTable)
+	local dataFolder = LocalPlayer:WaitForChild("Data")
+	local valueObject = dataFolder:FindFirstChild(valueName)
+
+	if not valueObject or not valueObject:IsA("StringValue") then
+		warn(valueName .. " is not a StringValue or does not exist. Creating a new one.")
+		if valueObject then valueObject:Destroy() end
+		valueObject = Instance.new("StringValue")
+		valueObject.Name = valueName
+		valueObject.Parent = dataFolder
+	end
+
+	local success, encodedData = pcall(function()
+		return HttpService:JSONEncode(dataTable)
+	end)
+
+	if success then
+		valueObject.Value = encodedData
+	else
+		warn("Failed to encode " .. valueName .. " data to JSON.")
+	end
+end
+
+-- Загрузка данных об эмоциях из StringValue
+local function loadEmoteData()
+	local dataFolder = LocalPlayer:WaitForChild("Data")
+	local equippedValue = dataFolder:WaitForChild("EmoteEquipped")
+
+	if not equippedValue or not equippedValue:IsA("StringValue") then
+		warn("EmoteEquipped is not a StringValue or does not exist. Creating a new one.")
+		if equippedValue then equippedValue:Destroy() end
+		equippedValue = Instance.new("StringValue")
+		equippedValue.Name = "EmoteEquipped"
+		equippedValue.Parent = dataFolder
+		emoteData = createDefaultEmoteData()
+		updateEmoteValue()
+		return
+	end
+
+	local success, decodedData = pcall(function()
+		if equippedValue.Value == "" then return nil end
+		return HttpService:JSONDecode(equippedValue.Value)
+	end)
+
+	if success and typeof(decodedData) == "table" and #decodedData == (EMOTE_SLOTS + 4) then
+		emoteData = decodedData
+	else
+		emoteData = createDefaultEmoteData()
+		updateEmoteValue()
+	end
+end
+
+-- Создание элементов GUI для эмоций
+local function createUI()
+	emoteGui = Instance.new("ScreenGui")
+	emoteGui.Name = "EmoteGUI"
+	emoteGui.ResetOnSpawn = false
+	emoteGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+	emoteWheelFrame = Instance.new("Frame")
+	emoteWheelFrame.Name = "EmoteWheel"
+	emoteWheelFrame.Size = UDim2.new(0, 300, 0, 300)
+	emoteWheelFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	emoteWheelFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	emoteWheelFrame.BackgroundTransparency = 1
+	emoteWheelFrame.Visible = false
+	emoteWheelFrame.Parent = emoteGui
+
+	-- Рамка для списка выбора эмоций
+	emoteSelectionFrame = Instance.new("ScrollingFrame")
+	emoteSelectionFrame.Name = "EmoteSelection"
+	emoteSelectionFrame.Size = UDim2.new(0, 300, 0, 400)
+	emoteSelectionFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	emoteSelectionFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	emoteSelectionFrame.BackgroundTransparency = 0.2
+	emoteSelectionFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	emoteSelectionFrame.BorderSizePixel = 0
+	emoteSelectionFrame.Visible = false
+	emoteSelectionFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y -- Увеличение лимита прокрутки
+	emoteSelectionFrame.Parent = emoteGui
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 5)
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.Parent = emoteSelectionFrame
+
+	-- Функция фильтрации списка эмоций
+	local function filterEmoteList(searchText)
+		local lowerSearchText = searchText:lower()
+		local visibleCategories = {}
+
+		-- Фильтруем кнопки эмоций
+		for _, child in emoteSelectionFrame:GetChildren() do
+			if child:IsA("TextButton") and child.Name ~= "BackButton" then
+				local isVisible = child.Name:lower():find(lowerSearchText, 1, true)
+				child.Visible = isVisible
+				if isVisible then
+					local category = child:GetAttribute("Category")
+					if category then
+						visibleCategories[category] = true
+					end
+				end
+			end
+		end
+
+		-- Показываем/скрываем заголовки категорий
+		for _, child in emoteSelectionFrame:GetChildren() do
+			if child:IsA("TextLabel") then
+				child.Visible = visibleCategories[child.Text] or false
+			end
+		end
+	end
+
+	-- Строка поиска
+	local searchBar = Instance.new("TextBox")
+	searchBar.Name = "SearchBar"
+	searchBar.Size = UDim2.new(1, -10, 0, 30)
+	searchBar.Position = UDim2.new(0.5, 0, 0, 0)
+	searchBar.AnchorPoint = Vector2.new(0.5, 0)
+	searchBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	searchBar.TextColor3 = Color3.fromRGB(255, 255, 255)
+	searchBar.PlaceholderText = "Search Emotes..."
+	searchBar.ClearTextOnFocus = false
+	searchBar.Font = Enum.Font.SourceSans
+	searchBar.TextSize = 16
+	searchBar.LayoutOrder = 0 -- Поместить вверху
+	searchBar.Parent = emoteSelectionFrame
+
+	searchBar:GetPropertyChangedSignal("Text"):Connect(function()
+		filterEmoteList(searchBar.Text)
+	end)
+
+	-- Заполнение списка эмоций
+	local layoutOrder = 1
+	for category, emotes in EMOTES do
+		local categoryLabel = Instance.new("TextLabel")
+		categoryLabel.Name = category .. "Label"
+		categoryLabel.Size = UDim2.new(1, 0, 0, 30)
+		categoryLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		categoryLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		categoryLabel.Text = category
+		categoryLabel.Font = Enum.Font.SourceSansBold
+		categoryLabel.TextSize = 20
+		categoryLabel.LayoutOrder = layoutOrder
+		categoryLabel.Parent = emoteSelectionFrame
+		layoutOrder = layoutOrder + 1
+
+		for _, emoteName in emotes do
+			local emoteButton = Instance.new("TextButton")
+			emoteButton.Name = emoteName
+			emoteButton.Size = UDim2.new(1, 0, 0, 40)
+			emoteButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+			emoteButton.TextColor3 = Color3.fromRGB(220, 220, 220)
+			emoteButton.Text = emoteName
+			emoteButton.Font = Enum.Font.SourceSans
+			emoteButton.TextSize = 18
+			emoteButton.LayoutOrder = layoutOrder
+			emoteButton:SetAttribute("Category", category) -- Добавляем атрибут для фильтрации
+			emoteButton.Parent = emoteSelectionFrame
+			layoutOrder = layoutOrder + 1
+
+			emoteButton.MouseButton1Click:Connect(function()
+				if currentSlotIndex then
+					emoteData[currentSlotIndex] = {category, emoteName}
+					updateEmoteValue()
+					emoteSelectionFrame.Visible = false
+					currentSlotIndex = nil
+				end
+			end)
+		end
+	end
+
+	-- Создание 8 кнопок-слотов по кругу
+	local radius = 120
+	for i = 1, EMOTE_SLOTS do
+		local angle = ((i - 1) / EMOTE_SLOTS) * 2 * math.pi - (math.pi / 2)
+		local x = math.cos(angle) * radius
+		local y = math.sin(angle) * radius
+
+		local slotButton = Instance.new("TextButton")
+		slotButton.Name = "Slot_" .. i
+		slotButton.Size = UDim2.new(0, 50, 0, 50)
+		slotButton.Position = UDim2.new(0.5, x, 0.5, y)
+		slotButton.AnchorPoint = Vector2.new(0.5, 0.5)
+		slotButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+		slotButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+		slotButton.Text = tostring(i)
+		slotButton.Font = Enum.Font.SourceSansBold
+		slotButton.TextSize = 24
+		slotButton.Parent = emoteWheelFrame
+
+		slotButton.MouseButton1Click:Connect(function()
+			currentSlotIndex = i
+			emoteWheelFrame.Visible = false
+			emoteSelectionFrame.Visible = true
+			-- Сброс поиска при открытии
+			searchBar.Text = ""
+			filterEmoteList("")
+		end)
+	end
+
+	emoteGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Общая функция фильтрации для списков косметики
+local function filterList(scrollingFrame, searchText)
+	local lowerSearchText = searchText:lower()
+	for _, button in scrollingFrame:GetChildren() do
+		if button:IsA("TextButton") then
+			button.Visible = button.Name:lower():find(lowerSearchText, 1, true)
+		end
+	end
+end
+
+-- Создание GUI для выбора косметики
+local function createCosmeticsUI()
+	cosmeticsFrame = Instance.new("Frame")
+	cosmeticsFrame.Name = "CosmeticsSelection"
+	cosmeticsFrame.Size = UDim2.new(0, 600, 0, 450) -- Увеличено для поисковых строк
+	cosmeticsFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	cosmeticsFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	cosmeticsFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	cosmeticsFrame.BorderSizePixel = 1
+	cosmeticsFrame.BorderColor3 = Color3.fromRGB(100, 100, 100)
+	cosmeticsFrame.Visible = false
+	cosmeticsFrame.Parent = emoteGui
+
+	local horizontalLayout = Instance.new("UIListLayout")
+	horizontalLayout.FillDirection = Enum.FillDirection.Horizontal
+	horizontalLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	horizontalLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	horizontalLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	horizontalLayout.Padding = UDim.new(0, 10)
+	horizontalLayout.Parent = cosmeticsFrame
+
+	local columnIndex = 1
+	for valueName, items in COSMETICS_DATA do
+		local columnFrame = Instance.new("Frame")
+		columnFrame.Name = valueName .. "Column"
+		columnFrame.Size = UDim2.new(0, 180, 1, 0)
+		columnFrame.BackgroundTransparency = 1
+		columnFrame.LayoutOrder = columnIndex
+		columnFrame.Parent = cosmeticsFrame
+
+		local columnLayout = Instance.new("UIListLayout")
+		columnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		columnLayout.Padding = UDim.new(0, 5)
+		columnLayout.Parent = columnFrame
+
+		local titleLabel = Instance.new("TextLabel")
+		titleLabel.Name = "Title"
+		titleLabel.Size = UDim2.new(1, 0, 0, 30)
+		titleLabel.Text = valueName:gsub("Equipped", "")
+		titleLabel.Font = Enum.Font.SourceSansBold
+		titleLabel.TextSize = 20
+		titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		titleLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		titleLabel.Parent = columnFrame
+
+		local searchBar = Instance.new("TextBox")
+		searchBar.Name = "SearchBar"
+		searchBar.Size = UDim2.new(1, 0, 0, 25)
+		searchBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+		searchBar.TextColor3 = Color3.fromRGB(255, 255, 255)
+		searchBar.PlaceholderText = "Search..."
+		searchBar.ClearTextOnFocus = false
+		searchBar.Font = Enum.Font.SourceSans
+		searchBar.TextSize = 14
+		searchBar.Parent = columnFrame
+
+		local scrollingFrame = Instance.new("ScrollingFrame")
+		scrollingFrame.Name = "ItemList"
+		scrollingFrame.Size = UDim2.new(1, 0, 1, -60) -- Место для заголовка и поиска
+		scrollingFrame.BackgroundTransparency = 0.5
+		scrollingFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+		scrollingFrame.BorderSizePixel = 0
+		scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y -- Увеличение лимита
+		scrollingFrame.Parent = columnFrame
+
+		searchBar:GetPropertyChangedSignal("Text"):Connect(function()
+			filterList(scrollingFrame, searchBar.Text)
+		end)
+
+		local listLayout = Instance.new("UIListLayout")
+		listLayout.Padding = UDim.new(0, 5)
+		listLayout.Parent = scrollingFrame
+
+		for _, itemName in items do
+			local itemButton = Instance.new("TextButton")
+			itemButton.Name = itemName
+			itemButton.Size = UDim2.new(1, 0, 0, 40)
+			itemButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+			itemButton.TextColor3 = Color3.fromRGB(220, 220, 220)
+			itemButton.Text = itemName
+			itemButton.Font = Enum.Font.SourceSans
+			itemButton.TextSize = 16
+			itemButton.Parent = scrollingFrame
+
+			itemButton.MouseButton1Click:Connect(function()
+				local dataToSave = {itemName}
+				updateDataValue(valueName, dataToSave)
+				print(valueName .. " set to: " .. itemName)
+			end)
+		end
+		columnIndex = columnIndex + 1
+	end
+end
+
+-- Обработка нажатия клавиши
+local function onInputBegan(input, gameProcessed)
+	if gameProcessed then return end
+
+	if input.KeyCode == TOGGLE_KEY then
+		emoteWheelFrame.Visible = not emoteWheelFrame.Visible
+		if not emoteWheelFrame.Visible then
+			emoteSelectionFrame.Visible = false
+		end
+	elseif input.KeyCode == COSMETICS_TOGGLE_KEY then
+		local willBeVisible = not cosmeticsFrame.Visible
+		cosmeticsFrame.Visible = willBeVisible
+
+		-- Сброс поиска при открытии меню косметики
+		if willBeVisible then
+			for _, columnFrame in cosmeticsFrame:GetChildren() do
+				if columnFrame:IsA("Frame") and columnFrame:FindFirstChild("SearchBar") then
+					local searchBar = columnFrame.SearchBar
+					local itemList = columnFrame.ItemList
+					searchBar.Text = ""
+					filterList(itemList, "")
+				end
+			end
+		end
+	end
+end
+
+-- Запуск
+initialize()
+loadEmoteData()
+createUI()
+createCosmeticsUI()
+UserInputService.InputBegan:Connect(onInputBegan)
+
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local function updateHumanoid()
+    local character = player.Character or player.CharacterAdded:Wait()
+    return character:FindFirstChild("Humanoid")
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.C then
+        local humanoid = updateHumanoid()
+        if humanoid then
+            humanoid:SetAttribute("Health", 0)
+            task.wait(0.1)
+            local currentCFrame = humanoid.Parent:GetPivot()
+            humanoid.Parent:PivotTo(currentCFrame + Vector3.new(0, -10000000, 0))
+			task.wait(0.1)
+			humanoid:SetAttribute("Health", 1)
+        end
+    end
+end)
+
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local function updateHumanoid()
+    local character = player.Character or player.CharacterAdded:Wait()
+    return character:FindFirstChild("Humanoid")
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.Insert then
+        local humanoid = updateHumanoid()
+        if humanoid then
+            humanoid:SetAttribute("Health", 0)
+            task.wait(0.1)
+            local currentCFrame = humanoid.Parent:GetPivot()
+            humanoid.Parent:PivotTo(currentCFrame + Vector3.new(9999999, 1000, 0))
+			task.wait(0.5)
+			humanoid:SetAttribute("Health", 1)
+        end
+    end
+end)
+
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local function updateHumanoid()
+    local character = player.Character or player.CharacterAdded:Wait()
+    return character:FindFirstChild("Humanoid")
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.L then
+        local humanoid = updateHumanoid()
+        if humanoid then
+            humanoid:SetAttribute("Health", 0)
+            task.wait(0.1)
+            local currentCFrame = humanoid.Parent:GetPivot()
+            humanoid.Parent:PivotTo(currentCFrame + Vector3.new(0, 0, 0))
+			task.wait(0.3)
+			humanoid:SetAttribute("Health", 1)
+        end
+    end
+end)
+
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local function getTextLabel()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+
+    local top = playerGui:FindFirstChild("Top")
+    if not top then return nil end
+
+    local server = top:FindFirstChild("Server")
+    if not server then return nil end
+
+    local line1 = server:FindFirstChild("Line1")
+    if not line1 then return nil end
+
+    return line1
+end
+
+local function replaceText()
+    local textLabel = getTextLabel()
+    if textLabel and textLabel:IsA("TextLabel") then
+        local currentText = textLabel.Text
+        local newText = string.gsub(currentText, "Server", "WiteHackep")
+        if newText ~= currentText then
+            textLabel.Text = newText
+        end
+    end
+end
+
+-- Try to connect to the Changed event if possible
+local textLabel = nil
+while not textLabel do
+    textLabel = getTextLabel()
+    if not textLabel then
+        task.wait(1)
+    end
+end
+
+textLabel.Changed:Connect(function(property)
+    if property == "Text" then
+        replaceText()
+    end
+end)
+
+-- Initial replacement in case the text is already set
+replaceText()
+
+-- Also periodically check in case the hierarchy changes
+while true do
+    replaceText()
+    task.wait(2)
+end
+
